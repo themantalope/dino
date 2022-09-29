@@ -18,6 +18,7 @@ import datetime
 import time
 import math
 import json
+import pickle as pkl
 from pathlib import Path
 
 import numpy as np
@@ -29,6 +30,7 @@ import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 from torchvision import datasets, transforms
 from torchvision import models as torchvision_models
+from dataloader import CheXpertDINODataset
 
 import utils
 import vision_transformer as vits
@@ -117,8 +119,13 @@ def get_args_parser():
         Used for small local view cropping of multi-crop.""")
 
     # Misc
-    parser.add_argument('--data_path', default='/path/to/imagenet/train/', type=str,
-        help='Please specify path to the ImageNet training data.')
+    # parser.add_argument('--data_path', default='/path/to/imagenet/train/', type=str,
+    #     help='Please specify path to the ImageNet training data.')
+    parser.add_argument('--chexpert_table', type=str, default="", help="""path to the csv table 
+    containing the file paths for chexpert""")
+    parser.add_argument('--chexpert_root', type=str, help="path to the chexpert root")
+    parser.add_argument('--chexpert_stats_file', type=str, help="""path to the pkl file containing 
+    stats for normalization""")
     parser.add_argument('--output_dir', default=".", type=str, help='Path to save logs and checkpoints.')
     parser.add_argument('--saveckp_freq', default=20, type=int, help='Save checkpoint every x epochs.')
     parser.add_argument('--seed', default=0, type=int, help='Random seed.')
@@ -137,12 +144,24 @@ def train_dino(args):
     cudnn.benchmark = True
 
     # ============ preparing data ... ============
-    transform = DataAugmentationDINO(
+    # transform = DataAugmentationDINO(
+    #     args.global_crops_scale,
+    #     args.local_crops_scale,
+    #     args.local_crops_number,
+    # )
+    norm_stats = None
+    with open(args.chexpert_stats_file, 'rb') as fp:
+        norm_stats = pkl.load(fp)
+    assert norm_stats is not None
+    transforms = DataAugmentationDINOChexpert(
         args.global_crops_scale,
         args.local_crops_scale,
         args.local_crops_number,
+        norm_stats['mean'],
+        norm_stats['std']
     )
-    dataset = datasets.ImageFolder(args.data_path, transform=transform)
+    # dataset = datasets.ImageFolder(args.data_path, transform=transform)
+    dataset = CheXpertDINODataset(args.chexpert_table, args.chexpert_root, transforms)
     sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
     data_loader = torch.utils.data.DataLoader(
         dataset,
